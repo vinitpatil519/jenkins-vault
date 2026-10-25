@@ -1,0 +1,8 @@
+.env
+secrets/
+*.pem
+*.key
+!*.key.example
+.DS_Store
+.idea/
+.vscode/
