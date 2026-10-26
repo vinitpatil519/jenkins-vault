@@ -70,7 +70,7 @@ absent(up{job="jenkins"})                              # alert when series missi
 
 ## 4. Quick setup (Docker Compose)
 
-Ready file: [templates/monitoring/compose.monitoring.yaml](../03-templates/monitoring/compose.monitoring.yaml).
+Ready file: [03-templates/docker/compose.yaml](../03-templates/docker/compose.yaml) (`--profile monitoring`).
 
 ```yaml
 # prometheus.yml

@@ -176,5 +176,22 @@ unclassified:
   timestamper:
     allPipelines: true
 
+# Bootstrap only the seed job here; the seed job then runs seed/*.groovy (03-templates/job-dsl) from Git.
 jobs:
-  - file: /var/jenkins_home/casc_configs/seed.groovy
+  - script: |
+      pipelineJob('seed') {
+        description('Generates all folders and jobs from acme/jenkins-config seed/*.groovy')
+        properties { pipelineTriggers { triggers { githubPush() } } }
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote { url('https://github.com/acme/jenkins-config.git'); credentials('github-app') }
+                branch('*/main')
+              }
+            }
+            scriptPath('jobs/seed/Jenkinsfile')
+            lightweight(true)
+          }
+        }
+      }
