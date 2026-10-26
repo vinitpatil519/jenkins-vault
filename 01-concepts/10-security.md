@@ -65,7 +65,7 @@ Key permissions: `Overall/Administer` (god), `Overall/Read`, `Job/Build`, `Job/C
 - [ ] HTTPS only (TLS at ingress/LB), HSTS.
 - [ ] Not exposed to internet; if needed → VPN / SSO proxy / allow-list; expose **only** webhook path.
 - [ ] **CSRF protection** on (default; crumb issuer).
-- [ ] **Agent → controller security** on (default since 2.326; can't be disabled now).
+- [ ] **Agent → controller security**: always on in modern cores (no setting). Only JNLP4 inbound protocol remains.
 - [ ] Inbound TCP port 50000 disabled or firewalled → use WebSocket.
 - [ ] CLI: disable remoting CLI (removed in modern versions); restrict HTTP CLI / disable if unused.
 - [ ] **Markup formatter** = Safe HTML / plain text (prevents stored XSS in descriptions).

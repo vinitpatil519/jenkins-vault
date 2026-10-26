@@ -13,6 +13,7 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
+  crumbIssuer: standard              # CSRF protection (default on; explicit here)
   slaveAgentPort: -1
   markupFormatter: plainText
   nodes:

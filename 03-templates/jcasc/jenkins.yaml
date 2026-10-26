@@ -50,6 +50,7 @@ jenkins:
             permissions: ["Job/Build", "Job/Read", "Job/Cancel"]
             entries: [{ group: "release-managers" }]
 
+  crumbIssuer: standard              # CSRF protection (default on; explicit here)
   slaveAgentPort: 50000              # set -1 if all agents use WebSocket
 
   disabledAdministrativeMonitors:
