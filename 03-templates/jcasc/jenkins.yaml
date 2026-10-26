@@ -50,13 +50,7 @@ jenkins:
             permissions: ["Job/Build", "Job/Read", "Job/Cancel"]
             entries: [{ group: "release-managers" }]
 
-  crumbIssuer:
-    standard:
-      excludeClientIPFromCrumb: true
-  remotingSecurity:
-    enabled: true
   slaveAgentPort: 50000              # set -1 if all agents use WebSocket
-  agentProtocols: ["JNLP4-connect", "Ping"]
 
   disabledAdministrativeMonitors:
     - "jenkins.diagnostics.ControllerExecutorsNoAgents"

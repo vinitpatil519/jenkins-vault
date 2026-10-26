@@ -47,7 +47,7 @@ K8s: annotate service or use a `ServiceMonitor` (kube-prometheus-stack). Helm ch
 
 ## 3. Key metrics (Prometheus plugin)
 
-Names depend on plugin version — open `/prometheus` and grep. Common ones:
+Verified against prometheus plugin on Jenkins LTS (2026). Names can shift between plugin versions — check `/prometheus/`. Per-job metrics appear after the collection period (default 120 s).
 
 | Metric | Meaning |
 |--------|---------|
@@ -57,11 +57,14 @@ Names depend on plugin version — open `/prometheus` and grep. Common ones:
 | `jenkins_node_online_value`, `jenkins_node_offline_value` | Agents |
 | `jenkins_health_check_score` | 0–1 overall health |
 | `jenkins_job_count_value` | Jobs |
-| `default_jenkins_builds_duration_milliseconds_summary{jenkins_job=...}` | Build duration per job |
+| `default_jenkins_builds_last_build_duration_milliseconds{jenkins_job=...}` | Last build duration per job |
+| `default_jenkins_builds_duration_milliseconds_summary_sum` / `_count` | Avg duration = sum / count (no quantiles by default) |
 | `default_jenkins_builds_last_build_result_ordinal` | 0 success, 1 unstable, 2 failure, 3 not built, 4 aborted |
-| `default_jenkins_builds_failed_build_count` / `..._success_build_count` | Totals |
+| `default_jenkins_builds_total_build_count_total` / `..._success_build_count_total` / `..._failed_build_count_total` | Counters → success rate |
+| `default_jenkins_builds_last_stage_duration_milliseconds_summary_*` | Per-stage timing |
+| `default_jenkins_executors_busy` / `_available` / `_queue_length` | Executor view per label set |
+| `jenkins_job_queuing_duration` / `jenkins_job_building_duration` | Time in queue vs building |
 | `jvm_memory_bytes_used{area="heap"}`, `jvm_gc_collection_seconds_*` | JVM |
-| `http_requests` / `jenkins_plugins_withUpdate` (varies) | Web + plugin updates |
 
 ## 4. Alerts (start with these)
 
@@ -93,7 +96,7 @@ Full rules: [templates/monitoring/jenkins-alerts.yml](../03-templates/monitoring
 
 ## 5. Grafana dashboard panels
 
-1. Up/health score · 2. Queue size (time series) · 3. Executors used vs total · 4. Agents online/offline · 5. Build success rate (%) per folder · 6. Build duration p95 per job · 7. Heap + GC time · 8. Top 10 slowest/most failing jobs.
+1. Up/health score · 2. Queue size (time series) · 3. Executors used vs total · 4. Agents online/offline · 5. Build success rate (%) per job · 6. Last build duration per job · 7. Heap + GC time · 8. Top 10 slowest/most failing jobs.
 
 Community dashboard: search grafana.com dashboards for "Jenkins Prometheus" (e.g. ID **9964** "Jenkins: Performance and Health Overview") as a starting point.
 
@@ -101,5 +104,6 @@ Community dashboard: search grafana.com dashboards for "Jenkins Prometheus" (e.g
 
 - Deployment frequency = count of successful prod deploy stage runs.
 - Lead time = commit timestamp → prod deploy timestamp (record both as build metadata / push to a metrics DB).
+- Success rate per job: `default_jenkins_builds_success_build_count_total / default_jenkins_builds_total_build_count_total`.
 - Change failure rate = failed or rolled-back prod deploys / total.
 - Tools: Apache DevLake, Four Keys-style pipelines, or emit custom metrics via Pushgateway / OpenTelemetry from the deploy stage.

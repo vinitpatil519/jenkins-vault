@@ -13,9 +13,6 @@ jenkins:
   authorizationStrategy:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
-  crumbIssuer:
-    standard:
-      excludeClientIPFromCrumb: true
   slaveAgentPort: -1
   markupFormatter: plainText
   nodes:

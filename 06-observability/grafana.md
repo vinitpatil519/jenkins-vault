@@ -78,7 +78,8 @@ Drop exported dashboard JSON into `dashboards/json/`. Import community dashboard
 | Executors busy % | `100 * jenkins_executor_in_use_value / jenkins_executor_count_value` |
 | Agents offline | `jenkins_node_offline_value` |
 | Heap % | `jvm_memory_bytes_used{area="heap",job="jenkins"} / jvm_memory_bytes_max{area="heap",job="jenkins"}` |
-| Build duration p95 (job var) | `default_jenkins_builds_duration_milliseconds_summary{jenkins_job=~"$job",quantile="0.95"}` |
+| Avg build duration (job var) | `default_jenkins_builds_duration_milliseconds_summary_sum{jenkins_job=~"$job"} / default_jenkins_builds_duration_milliseconds_summary_count{jenkins_job=~"$job"}` |
+| Success rate | `default_jenkins_builds_success_build_count_total / default_jenkins_builds_total_build_count_total` |
 | Last result per job (table) | `default_jenkins_builds_last_build_result_ordinal` |
 
 Deploy annotations: pipeline posts to Grafana API after deploy:

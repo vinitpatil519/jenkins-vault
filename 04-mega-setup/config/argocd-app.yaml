@@ -1,0 +1,38 @@
+# One Argo CD Application per (app, env) generated from the gitops repo folder layout:
+#   envs/<env>/<app>/values.yaml   (Jenkins bumps image.tag here)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: apps
+  namespace: argocd
+spec:
+  goTemplate: true
+  generators:
+    - git:
+        repoURL: https://github.com/acme/gitops.git
+        revision: main
+        directories:
+          - path: envs/*/*
+  template:
+    metadata:
+      name: '{{ index .path.segments 2 }}-{{ index .path.segments 1 }}'
+    spec:
+      project: default
+      sources:
+        - repoURL: oci://123456789012.dkr.ecr.eu-west-1.amazonaws.com/charts
+          chart: service
+          targetRevision: 1.*
+          helm:
+            valueFiles:
+              - $values/{{ .path.path }}/values.yaml
+        - repoURL: https://github.com/acme/gitops.git
+          targetRevision: main
+          ref: values
+      destination:
+        name: '{{ index .path.segments 1 }}'          # cluster registered in Argo CD with env name
+        namespace: '{{ index .path.segments 2 }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions: [CreateNamespace=true]

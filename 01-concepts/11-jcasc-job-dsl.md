@@ -67,11 +67,6 @@ jenkins:
             pattern: "payments/.*"
             permissions: ["Job/Build", "Job/Read", "Job/Cancel", "Job/Workspace"]
             entries: [{ group: "team-payments" }]
-  crumbIssuer:
-    standard:
-      excludeClientIPFromCrumb: true
-  remotingSecurity:
-    enabled: true
   slaveAgentPort: -1                              # disable TCP inbound port (use WebSocket)
   globalNodeProperties:
     - envVars:

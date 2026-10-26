@@ -1,0 +1,63 @@
+# Production plugin set. Pin each line as id:version before building
+# (jenkins-plugin-cli --plugin-file plugins.txt --available-updates --output txt).
+# Keep this list minimal: every plugin is attack surface and upgrade risk.
+
+# Pipeline core
+workflow-aggregator
+pipeline-graph-view
+pipeline-utility-steps
+pipeline-stage-view
+pipeline-milestone-step
+lockable-resources
+
+# Config as code
+configuration-as-code
+job-dsl
+
+# SCM
+git
+github
+github-branch-source
+github-checks
+
+# Agents
+kubernetes
+kubernetes-credentials-provider
+
+# Credentials & secrets
+credentials
+credentials-binding
+plain-credentials
+ssh-credentials
+ssh-agent
+aws-credentials
+pipeline-aws
+
+# Security
+oic-auth
+role-strategy
+matrix-auth
+audit-trail
+
+# Quality & security reporting
+junit
+coverage
+warnings-ng
+sonar
+dependency-check-jenkins-plugin
+
+# Build helpers
+timestamper
+ansicolor
+ws-cleanup
+build-timeout
+rebuild
+
+# Notifications
+slack
+email-ext
+
+# Observability
+prometheus
+opentelemetry
+cloudbees-disk-usage-simple

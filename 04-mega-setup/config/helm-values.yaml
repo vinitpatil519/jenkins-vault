@@ -1,0 +1,136 @@
+# helm upgrade --install jenkins jenkins/jenkins -n jenkins -f helm-values.yaml
+# Chart: https://charts.jenkins.io (jenkinsci/helm-charts). Check `helm show values jenkins/jenkins` for your chart version.
+
+fullnameOverride: jenkins
+
+controller:
+  image:
+    registry: 123456789012.dkr.ecr.eu-west-1.amazonaws.com
+    repository: platform/jenkins-controller
+    tag: "2.479-20261020-a1b2c3d"        # custom image from step 03
+    pullPolicy: IfNotPresent
+  installPlugins: false                   # plugins are baked into the image
+  installLatestPlugins: false
+  initializeOnce: true
+
+  numExecutors: 0
+  executorMode: EXCLUSIVE
+
+  admin:
+    createSecret: false                   # SSO only; break-glass handled by IdP / oic escape hatch
+
+  resources:
+    requests: { cpu: "2", memory: "8Gi" }
+    limits: { memory: "8Gi" }
+  javaOpts: >-
+    -XX:MaxRAMPercentage=70
+    -XX:+UseG1GC
+    -XX:+AlwaysPreTouch
+    -XX:+ParallelRefProcEnabled
+    -Xlog:gc*:file=/var/jenkins_home/logs/gc.log:time,uptime:filecount=5,filesize=20M
+    -Dorg.jenkinsci.plugins.durabletask.BourneShellScript.HEARTBEAT_CHECK_INTERVAL=600
+    -Dhudson.model.ParametersAction.keepUndefinedParameters=false
+
+  jenkinsUrl: https://jenkins.example.com/
+  jenkinsUrlProtocol: https
+
+  serviceType: ClusterIP
+  agentListenerEnabled: true
+  agentListenerPort: 50000
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    hostName: jenkins.example.com
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+      nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+      # Office/VPN allow-list; GitHub webhook path gets its own ingress below
+      nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,203.0.113.0/24"
+    tls:
+      - secretName: jenkins-tls
+        hosts: [jenkins.example.com]
+
+  # Secrets from External Secrets Operator (step 04) exposed as env vars for JCasC ${VAR}
+  containerEnvFrom:
+    - secretRef:
+        name: jenkins-casc-secrets
+
+  # JCasC: chart sidecar watches ConfigMaps labelled jenkins-jenkins-config and hot-reloads
+  sidecars:
+    configAutoReload:
+      enabled: true
+  JCasC:
+    defaultConfig: false                  # we own the whole config
+    overwriteConfiguration: true
+    configScripts:
+      security: |
+        # paste `jenkins.securityRealm`, `authorizationStrategy`, `security:` from 03-templates/jcasc/jenkins.yaml
+      clouds: |
+        # paste `jenkins.clouds`
+      credentials: |
+        # paste `credentials:`
+      unclassified: |
+        # paste `unclassified:` and `jobs:`
+
+  prometheus:
+    enabled: true
+    serviceMonitorNamespace: monitoring
+    serviceMonitorAdditionalLabels:
+      release: kps
+    scrapeInterval: 30s
+    scrapeEndpoint: /prometheus/
+
+  podSecurityContextOverride:
+    runAsUser: 1000
+    runAsNonRoot: true
+    fsGroup: 1000
+  containerSecurityContext:
+    runAsUser: 1000
+    runAsGroup: 1000
+    readOnlyRootFilesystem: true          # chart mounts emptyDir at /tmp; JENKINS_HOME is the PV
+    allowPrivilegeEscalation: false
+    capabilities: { drop: ["ALL"] }
+
+  probes:
+    startupProbe:
+      failureThreshold: 30
+      periodSeconds: 10
+    livenessProbe:
+      failureThreshold: 5
+    readinessProbe:
+      failureThreshold: 3
+
+  nodeSelector:
+    workload: platform
+  priorityClassName: system-cluster-critical   # or a dedicated high PriorityClass
+
+persistence:
+  enabled: true
+  storageClass: gp3-retain                # reclaimPolicy: Retain, encrypted, snapshots via Velero/DLM
+  size: 200Gi
+  accessMode: ReadWriteOnce
+
+agent:
+  enabled: false                          # pod templates defined in JCasC clouds block
+
+serviceAccount:
+  create: true
+  name: jenkins
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/jenkins-controller
+
+rbac:
+  create: true
+  readSecrets: true                       # kubernetes-credentials-provider reads labelled Secrets
+
+networkPolicy:
+  enabled: true
+  internalAgents:
+    allowed: true
+    namespaceLabels:
+      kubernetes.io/metadata.name: jenkins-agents
+
+backup:
+  enabled: false                          # use Velero / EBS snapshots (step 13)

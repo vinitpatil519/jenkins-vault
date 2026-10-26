@@ -1,0 +1,55 @@
+# Only needed if controller.prometheus.enabled is false in Helm values.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: jenkins
+  namespace: monitoring
+  labels: { release: kps }
+spec:
+  namespaceSelector: { matchNames: [jenkins] }
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: jenkins
+      app.kubernetes.io/component: jenkins-controller
+  endpoints:
+    - port: http
+      path: /prometheus/
+      interval: 30s
+      basicAuth:                                   # useAuthenticatedEndpoint: true in JCasC
+        username: { name: prometheus-jenkins, key: username }
+        password: { name: prometheus-jenkins, key: token }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: jenkins
+  namespace: monitoring
+  labels: { release: kps }
+spec:
+  groups:
+    - name: jenkins
+      rules:
+        - alert: JenkinsDown
+          expr: up{job="jenkins"} == 0
+          for: 2m
+          labels: { severity: critical }
+          annotations: { summary: "Jenkins controller down" }
+        - alert: JenkinsQueueBacklog
+          expr: jenkins_queue_size_value > 15
+          for: 15m
+          labels: { severity: warning }
+          annotations: { summary: "{{ $value }} builds queued 15m" }
+        - alert: JenkinsAgentProvisioningSlow
+          expr: jenkins_queue_buildable_value > 5
+          for: 10m
+          labels: { severity: warning }
+          annotations: { summary: "Buildable items waiting: check Karpenter / quota / pod Pending" }
+        - alert: JenkinsHeapHigh
+          expr: jvm_memory_bytes_used{job="jenkins",area="heap"} / jvm_memory_bytes_max{job="jenkins",area="heap"} > 0.85
+          for: 15m
+          labels: { severity: warning }
+        - alert: JenkinsDiskLow
+          expr: kubelet_volume_stats_available_bytes{persistentvolumeclaim=~"jenkins.*"} / kubelet_volume_stats_capacity_bytes{persistentvolumeclaim=~"jenkins.*"} < 0.15
+          for: 10m
+          labels: { severity: critical }
+          annotations: { summary: "JENKINS_HOME volume < 15% free" }
