@@ -1,0 +1,55 @@
+# Jenkins alert rules. Metric names come from the Jenkins `prometheus` plugin;
+# verify against https://<jenkins>/prometheus/ for your plugin version.
+groups:
+  - name: jenkins
+    rules:
+      - alert: JenkinsDown
+        expr: up{job="jenkins"} == 0
+        for: 2m
+        labels: { severity: critical }
+        annotations:
+          summary: "Jenkins controller unreachable"
+
+      - alert: JenkinsQueueBacklog
+        expr: jenkins_queue_size_value > 10
+        for: 15m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} builds queued for 15m (agents short or label mismatch)"
+
+      - alert: JenkinsStuckBuilds
+        expr: jenkins_queue_stuck_value > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Builds stuck in queue"
+
+      - alert: JenkinsAgentsOffline
+        expr: jenkins_node_offline_value > 0
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "{{ $value }} agent(s) offline"
+
+      - alert: JenkinsExecutorsSaturated
+        expr: jenkins_executor_in_use_value / jenkins_executor_count_value > 0.9
+        for: 30m
+        labels: { severity: warning }
+        annotations:
+          summary: "Executors >90% busy for 30m"
+
+      - alert: JenkinsHeapHigh
+        expr: |
+          jvm_memory_bytes_used{job="jenkins",area="heap"}
+            / jvm_memory_bytes_max{job="jenkins",area="heap"} > 0.85
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Controller heap >85%"
+
+      - alert: JenkinsHealthScoreLow
+        expr: jenkins_health_check_score < 1
+        for: 10m
+        labels: { severity: warning }
+        annotations:
+          summary: "Jenkins health checks failing (disk, thread deadlock, plugins)"

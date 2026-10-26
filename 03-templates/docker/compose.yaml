@@ -1,0 +1,103 @@
+# Jenkins lab: controller (JCasC, no wizard) + SSH agent
+# Optional profiles: monitoring (Prometheus + Grafana), sonar (SonarQube + Postgres)
+#
+#   ./setup.sh                                   # generates agent SSH key + .env
+#   docker compose up -d --build                 # Jenkins  http://localhost:8080
+#   docker compose --profile monitoring up -d    # + Prometheus :9090, Grafana :3000
+#   docker compose --profile sonar up -d         # + SonarQube :9000
+#   docker compose --profile "*" down -v         # remove everything
+
+name: jenkins-lab
+
+services:
+  jenkins:
+    build: .
+    image: jenkins-lab:latest
+    container_name: jenkins
+    ports:
+      - "8080:8080"
+    environment:
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?run ./setup.sh first}
+      JENKINS_URL: http://localhost:8080/
+      CASC_JENKINS_CONFIG: /var/jenkins_home/casc
+      JAVA_OPTS: >-
+        -Djenkins.install.runSetupWizard=false
+        -XX:MaxRAMPercentage=70
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - ./casc:/var/jenkins_home/casc:ro
+      - ./secrets/agent_key:/run/secrets/agent_key:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/login"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 5
+
+  agent:
+    image: jenkins/ssh-agent:latest-jdk21
+    container_name: jenkins-agent
+    environment:
+      JENKINS_AGENT_SSH_PUBKEY: ${AGENT_SSH_PUBKEY:?run ./setup.sh first}
+    volumes:
+      - agent_work:/home/jenkins/agent
+    restart: unless-stopped
+
+  prometheus:
+    profiles: [monitoring]
+    image: prom/prometheus:v2.55.1
+    container_name: prometheus
+    ports: ["9090:9090"]
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --web.enable-lifecycle
+    volumes:
+      - ../monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ../monitoring/jenkins-alerts.yml:/etc/prometheus/rules/jenkins-alerts.yml:ro
+      - prom_data:/prometheus
+
+  grafana:
+    profiles: [monitoring]
+    image: grafana/grafana:11.3.0
+    container_name: grafana
+    ports: ["3000:3000"]
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ../monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+
+  sonarqube:
+    profiles: [sonar]
+    image: sonarqube:community
+    container_name: sonarqube
+    ports: ["9000:9000"]
+    environment:
+      SONAR_JDBC_URL: jdbc:postgresql://sonar-db:5432/sonar
+      SONAR_JDBC_USERNAME: sonar
+      SONAR_JDBC_PASSWORD: sonar
+    volumes:
+      - sonar_data:/opt/sonarqube/data
+      - sonar_ext:/opt/sonarqube/extensions
+    depends_on: [sonar-db]
+
+  sonar-db:
+    profiles: [sonar]
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: sonar
+      POSTGRES_PASSWORD: sonar
+      POSTGRES_DB: sonar
+    volumes:
+      - sonar_pg:/var/lib/postgresql/data
+
+volumes:
+  jenkins_home:
+  agent_work:
+  prom_data:
+  grafana_data:
+  sonar_data:
+  sonar_ext:
+  sonar_pg:

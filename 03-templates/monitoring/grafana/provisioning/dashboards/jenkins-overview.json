@@ -1,0 +1,57 @@
+{
+  "title": "Jenkins Overview",
+  "uid": "jenkins-overview",
+  "schemaVersion": 39,
+  "time": { "from": "now-6h", "to": "now" },
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat", "title": "Controller up", "gridPos": { "x": 0, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "up{job=\"jenkins\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }] } }
+    },
+    {
+      "type": "stat", "title": "Queue size", "gridPos": { "x": 4, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "jenkins_queue_size_value", "refId": "A" }]
+    },
+    {
+      "type": "stat", "title": "Agents online / offline", "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
+      "targets": [
+        { "expr": "jenkins_node_online_value", "legendFormat": "online", "refId": "A" },
+        { "expr": "jenkins_node_offline_value", "legendFormat": "offline", "refId": "B" }
+      ]
+    },
+    {
+      "type": "gauge", "title": "Executors busy %", "gridPos": { "x": 12, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "100 * jenkins_executor_in_use_value / jenkins_executor_count_value", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "type": "gauge", "title": "Heap used %", "gridPos": { "x": 16, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "100 * jvm_memory_bytes_used{job=\"jenkins\",area=\"heap\"} / jvm_memory_bytes_max{job=\"jenkins\",area=\"heap\"}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0, "max": 100 } }
+    },
+    {
+      "type": "stat", "title": "Health score", "gridPos": { "x": 20, "y": 0, "w": 4, "h": 4 },
+      "targets": [{ "expr": "jenkins_health_check_score", "refId": "A" }]
+    },
+    {
+      "type": "timeseries", "title": "Queue over time", "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "jenkins_queue_size_value", "legendFormat": "queued", "refId": "A" },
+        { "expr": "jenkins_queue_stuck_value", "legendFormat": "stuck", "refId": "B" }
+      ]
+    },
+    {
+      "type": "timeseries", "title": "Executors", "gridPos": { "x": 12, "y": 4, "w": 12, "h": 8 },
+      "targets": [
+        { "expr": "jenkins_executor_count_value", "legendFormat": "total", "refId": "A" },
+        { "expr": "jenkins_executor_in_use_value", "legendFormat": "in use", "refId": "B" }
+      ]
+    },
+    {
+      "type": "table", "title": "Last build result per job (0 ok, 1 unstable, 2 fail, 4 aborted)", "gridPos": { "x": 0, "y": 12, "w": 24, "h": 8 },
+      "targets": [{ "expr": "default_jenkins_builds_last_build_result_ordinal", "format": "table", "instant": true, "refId": "A" }]
+    }
+  ]
+}

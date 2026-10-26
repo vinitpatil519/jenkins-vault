@@ -1,0 +1,55 @@
+// Java / Maven: build, test, coverage, Sonar, package, publish to Nexus
+pipeline {
+  agent {
+    kubernetes {
+      defaultContainer 'maven'
+      yaml '''
+spec:
+  containers:
+  - name: maven
+    image: maven:3.9-eclipse-temurin-21
+    command: ["sleep"]
+    args: ["infinity"]
+    resources: { requests: { cpu: "1", memory: "2Gi" }, limits: { memory: "2Gi" } }
+'''
+    }
+  }
+  options {
+    timeout(time: 30, unit: 'MINUTES')
+    disableConcurrentBuilds(abortPrevious: true)
+    buildDiscarder(logRotator(numToKeepStr: '30'))
+    timestamps()
+  }
+  environment {
+    MAVEN_OPTS = '-Dmaven.repo.local=.m2/repository'
+  }
+  stages {
+    stage('Build & Test') {
+      steps { sh 'mvn -B -ntp clean verify' }
+      post {
+        always {
+          junit allowEmptyResults: true, testResults: '**/target/surefire-reports/*.xml'
+          recordCoverage tools: [[parser: 'JACOCO', pattern: '**/target/site/jacoco/jacoco.xml']]
+        }
+      }
+    }
+    stage('SonarQube') {
+      steps { withSonarQubeEnv('sonar') { sh 'mvn -B -ntp sonar:sonar' } }
+    }
+    stage('Quality Gate') {
+      steps { timeout(time: 10, unit: 'MINUTES') { waitForQualityGate abortPipeline: true } }
+    }
+    stage('Publish') {
+      when { anyOf { branch 'main'; buildingTag() } }
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'nexus', usernameVariable: 'NEXUS_USR', passwordVariable: 'NEXUS_PSW')]) {
+          sh 'mvn -B -ntp deploy -DskipTests -s ci/settings.xml'
+        }
+      }
+    }
+  }
+  post {
+    success { archiveArtifacts artifacts: 'target/*.jar', fingerprint: true }
+    cleanup { cleanWs() }
+  }
+}

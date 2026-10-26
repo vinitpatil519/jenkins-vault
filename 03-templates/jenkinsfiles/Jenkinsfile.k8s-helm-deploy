@@ -1,0 +1,54 @@
+// Parameterized Helm deploy job: dev/staging auto, prod needs approval; atomic with rollback
+pipeline {
+  agent none
+  parameters {
+    string(name: 'TAG', defaultValue: '', description: 'Image tag to deploy (required)')
+    choice(name: 'ENV', choices: ['dev', 'staging', 'prod'])
+  }
+  options { timeout(time: 60, unit: 'MINUTES'); disableConcurrentBuilds() }
+  stages {
+    stage('Validate') {
+      agent { label 'k8s' }
+      steps {
+        script { if (!params.TAG?.trim()) { error 'TAG is required' } }
+        sh 'helm lint charts/app -f charts/app/values-${ENV}.yaml'
+      }
+    }
+    stage('Approval') {
+      when { beforeAgent true; expression { params.ENV == 'prod' } }
+      steps {
+        timeout(time: 30, unit: 'MINUTES') {
+          input message: "Deploy ${params.TAG} to PROD?", ok: 'Deploy', submitter: 'release-managers', submitterParameter: 'APPROVER'
+        }
+      }
+    }
+    stage('Deploy') {
+      agent { label 'k8s' }
+      steps {
+        lock(resource: "deploy-${params.ENV}") {
+          withCredentials([file(credentialsId: "kubeconfig-${params.ENV}", variable: 'KUBECONFIG')]) {
+            sh '''
+              helm upgrade --install app charts/app -n app-${ENV} --create-namespace \
+                -f charts/app/values-${ENV}.yaml --set image.tag=${TAG} \
+                --atomic --wait --timeout 10m --history-max 10
+              kubectl -n app-${ENV} rollout status deploy/app --timeout=300s
+            '''
+          }
+        }
+      }
+    }
+    stage('Smoke test') {
+      agent { label 'k8s' }
+      steps {
+        retry(5) {
+          sleep 10
+          sh 'curl -fsS https://app-${ENV}.example.com/healthz'
+        }
+      }
+    }
+  }
+  post {
+    success { echo "Deployed ${params.TAG} to ${params.ENV}" }
+    failure { echo 'Deploy failed — helm --atomic already rolled back the release' }
+  }
+}

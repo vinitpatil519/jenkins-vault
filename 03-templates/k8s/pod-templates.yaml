@@ -1,0 +1,57 @@
+# Reusable agent pod specs for `agent { kubernetes { yamlFile 'ci/pod.yaml' } }`.
+# Pick one document per pipeline. Tool containers sleep; Jenkins execs steps into them.
+---
+# Small: lint, scripts, kubectl/helm
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: tools
+      image: alpine/k8s:1.31.2
+      command: ["sleep"]
+      args: ["infinity"]
+      resources: { requests: { cpu: 250m, memory: 256Mi }, limits: { memory: 512Mi } }
+---
+# Java build + rootless image build
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: maven
+      image: maven:3.9-eclipse-temurin-21
+      command: ["sleep"]
+      args: ["infinity"]
+      resources: { requests: { cpu: "2", memory: 4Gi }, limits: { memory: 4Gi } }
+      volumeMounts: [{ name: m2, mountPath: /root/.m2 }]
+    - name: buildkit
+      image: moby/buildkit:v0.17.0-rootless
+      args: ["--oci-worker-no-process-sandbox"]
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+  volumes:
+    - name: m2
+      persistentVolumeClaim: { claimName: maven-cache }
+---
+# Integration tests that need a Docker daemon (Testcontainers). Privileged — isolate on its own node pool.
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: build
+      image: eclipse-temurin:21-jdk
+      command: ["sleep"]
+      args: ["infinity"]
+      env:
+        - { name: DOCKER_HOST, value: "tcp://localhost:2375" }
+        - { name: TESTCONTAINERS_RYUK_DISABLED, value: "true" }
+    - name: dind
+      image: docker:27-dind
+      securityContext: { privileged: true }
+      env:
+        - { name: DOCKER_TLS_CERTDIR, value: "" }
+  nodeSelector: { workload: ci-privileged }
+  tolerations:
+    - { key: dedicated, operator: Equal, value: ci-privileged, effect: NoSchedule }

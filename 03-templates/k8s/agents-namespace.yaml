@@ -1,0 +1,81 @@
+# Namespace, quota, limits, RBAC and network policy for Jenkins agent pods.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: jenkins-agents
+  labels:
+    pod-security.kubernetes.io/enforce: baseline     # BuildKit rootless needs Unconfined seccomp → not "restricted"
+    pod-security.kubernetes.io/warn: restricted
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata: { name: agents-quota, namespace: jenkins-agents }
+spec:
+  hard:
+    requests.cpu: "100"
+    requests.memory: 200Gi
+    limits.memory: 300Gi
+    pods: "150"
+---
+apiVersion: v1
+kind: LimitRange
+metadata: { name: agents-defaults, namespace: jenkins-agents }
+spec:
+  limits:
+    - type: Container
+      defaultRequest: { cpu: 250m, memory: 512Mi }
+      default: { memory: 2Gi }
+---
+# Service account the controller uses to create agent pods (bound from the jenkins namespace)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: { name: jenkins-pod-manager, namespace: jenkins-agents }
+rules:
+  - apiGroups: [""]
+    resources: ["pods", "pods/exec", "pods/log", "persistentvolumeclaims", "events"]
+    verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: { name: jenkins-pod-manager, namespace: jenkins-agents }
+subjects:
+  - kind: ServiceAccount
+    name: jenkins
+    namespace: jenkins
+roleRef:
+  kind: Role
+  name: jenkins-pod-manager
+  apiGroup: rbac.authorization.k8s.io
+---
+# Identity of the agent pods themselves: no Kubernetes API rights by default.
+# Map to cloud IAM (IRSA / EKS Pod Identity / Workload Identity) for registry push.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-agent
+  namespace: jenkins-agents
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/jenkins-agent-ecr-push
+automountServiceAccountToken: false
+---
+# Agents may reach: controller (inbound), DNS, and HTTPS egress. Nothing else in-cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: { name: agents-egress, namespace: jenkins-agents }
+spec:
+  podSelector: {}
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: jenkins } }
+      ports: [{ port: 8080 }, { port: 50000 }]
+    - to:
+        - namespaceSelector: { matchLabels: { kubernetes.io/metadata.name: kube-system } }
+      ports: [{ port: 53, protocol: UDP }, { port: 53, protocol: TCP }]
+    - to:
+        - ipBlock: { cidr: 0.0.0.0/0, except: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.169.254/32"] }
+      ports: [{ port: 443 }, { port: 22 }]

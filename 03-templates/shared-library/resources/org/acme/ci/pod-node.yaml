@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins/agent: golden-node
+spec:
+  serviceAccountName: jenkins-agent
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containers:
+    - name: build
+      image: registry.example.com/ci/node20-build:2026.10
+      command: ["sleep"]
+      args: ["infinity"]
+      env:
+        - { name: npm_config_cache, value: /home/jenkins/.npm }
+      resources:
+        requests: { cpu: "1", memory: "2Gi" }
+        limits: { memory: "3Gi" }
+      volumeMounts:
+        - { name: npm, mountPath: /home/jenkins/.npm }
+    - name: buildkit
+      image: moby/buildkit:v0.17.0-rootless
+      args: ["--oci-worker-no-process-sandbox"]
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+  volumes:
+    - name: npm
+      persistentVolumeClaim: { claimName: npm-cache }
+  tolerations:
+    - { key: dedicated, operator: Equal, value: ci, effect: NoSchedule }
+  nodeSelector:
+    workload: ci

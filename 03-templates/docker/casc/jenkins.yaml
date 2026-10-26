@@ -1,0 +1,59 @@
+# Lab JCasC. Applied at boot; UI changes to these settings get overwritten.
+jenkins:
+  systemMessage: "Jenkins lab — configured by JCasC (03-templates/docker/casc). Edit YAML, then Manage Jenkins → Configuration as Code → Reload."
+  numExecutors: 0
+  mode: EXCLUSIVE
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: admin
+          name: Admin
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: true
+  slaveAgentPort: -1
+  markupFormatter: plainText
+  nodes:
+    - permanent:
+        name: agent-1
+        remoteFS: /home/jenkins/agent
+        labelString: "linux lab"
+        numExecutors: 2
+        mode: NORMAL
+        retentionStrategy: always
+        launcher:
+          ssh:
+            host: agent
+            port: 22
+            credentialsId: agent-ssh
+            javaPath: /opt/java/openjdk/bin/java
+            launchTimeoutSeconds: 60
+            maxNumRetries: 10
+            retryWaitTime: 15
+            # Lab only. Production: knownHostsFileKeyVerificationStrategy
+            sshHostKeyVerificationStrategy: nonVerifyingKeyVerificationStrategy
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - basicSSHUserPrivateKey:
+              scope: SYSTEM
+              id: agent-ssh
+              username: jenkins
+              description: "Controller → lab agent SSH key"
+              privateKeySource:
+                directEntry:
+                  privateKey: "${readFile:/run/secrets/agent_key}"
+
+unclassified:
+  location:
+    url: "${JENKINS_URL}"
+
+jobs:
+  - file: /var/jenkins_home/casc/seed.groovy

@@ -1,0 +1,12 @@
+<p>Platform golden-path pipeline.</p>
+<pre>
+@Library('platform-lib@v2') _
+goldenPipeline(
+  language: 'java',          // java | node  (selects resources/org/acme/ci/pod-<language>.yaml; add more files for more languages)
+  image: 'payments-api',     // image name in the registry (default: repo name)
+  deploy: true,              // promote main builds to staging via GitOps
+  sonar: true,               // run SonarQube + quality gate
+  timeoutMinutes: 45
+)
+</pre>
+<p>Contract: the repo has a Dockerfile and a <code>make ci</code> target.</p>

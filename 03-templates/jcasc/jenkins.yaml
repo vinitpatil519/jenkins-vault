@@ -1,0 +1,185 @@
+# Production JCasC template. Secrets (${...}) come from env vars / mounted files (/run/secrets)
+# populated by External Secrets Operator or a Kubernetes Secret. Never commit real values.
+jenkins:
+  systemMessage: "Managed by JCasC from git: acme/jenkins-config. UI changes are overwritten."
+  numExecutors: 0
+  mode: EXCLUSIVE
+  quietPeriod: 5
+  scmCheckoutRetryCount: 2
+  markupFormatter:
+    rawHtml:
+      disableSyntaxHighlighting: true
+  # markupFormatter: plainText          # safest
+
+  securityRealm:
+    oic:
+      clientId: jenkins
+      clientSecret: "${OIDC_CLIENT_SECRET}"
+      serverConfiguration:
+        wellKnown:
+          wellKnownOpenIDConfigurationUrl: "https://sso.example.com/realms/eng/.well-known/openid-configuration"
+      userNameField: preferred_username
+      fullNameFieldName: name
+      emailFieldName: email
+      groupsFieldName: groups
+      logoutFromOpenidProvider: true
+      # break-glass: keep one local admin via a separate controller or the escapeHatch option of oic-auth
+
+  authorizationStrategy:
+    roleBased:
+      roles:
+        global:
+          - name: admin
+            description: Platform team
+            permissions: ["Overall/Administer"]
+            entries: [{ group: "jenkins-admins" }]
+          - name: engineer
+            description: Everyone in engineering
+            permissions: ["Overall/Read", "Job/Read", "View/Read"]
+            entries: [{ group: "engineering" }]
+          - name: prometheus
+            permissions: ["Overall/Read", "Metrics/View"]
+            entries: [{ user: "prometheus" }]
+        items:
+          - name: team-payments
+            pattern: "payments(/.*)?"
+            permissions: ["Job/Build", "Job/Cancel", "Job/Read", "Job/Workspace", "Run/Update"]
+            entries: [{ group: "team-payments" }]
+          - name: release-managers
+            pattern: "deploy/prod(/.*)?"
+            permissions: ["Job/Build", "Job/Read", "Job/Cancel"]
+            entries: [{ group: "release-managers" }]
+
+  crumbIssuer:
+    standard:
+      excludeClientIPFromCrumb: true
+  remotingSecurity:
+    enabled: true
+  slaveAgentPort: 50000              # set -1 if all agents use WebSocket
+  agentProtocols: ["JNLP4-connect", "Ping"]
+
+  disabledAdministrativeMonitors:
+    - "jenkins.diagnostics.ControllerExecutorsNoAgents"
+
+  globalNodeProperties:
+    - envVars:
+        env:
+          - { key: REGISTRY, value: "123456789012.dkr.ecr.eu-west-1.amazonaws.com" }
+          - { key: SONAR_HOST, value: "https://sonar.example.com" }
+
+  clouds:
+    - kubernetes:
+        name: kubernetes
+        namespace: jenkins-agents
+        serverUrl: "https://kubernetes.default"
+        jenkinsUrl: "http://jenkins.jenkins.svc.cluster.local:8080"
+        jenkinsTunnel: "jenkins-agent.jenkins.svc.cluster.local:50000"
+        containerCapStr: "200"
+        connectTimeout: 10
+        readTimeout: 30
+        podRetention: never
+        waitForPodSec: 600
+        templates:
+          - name: default
+            label: "k8s default"
+            serviceAccount: jenkins-agent
+            nodeUsageMode: NORMAL
+            idleMinutes: 0
+            yamlMergeStrategy: merge
+            containers:
+              - name: jnlp
+                image: "jenkins/inbound-agent:latest-jdk21"   # pin a digest in real use
+                resourceRequestCpu: "250m"
+                resourceRequestMemory: "512Mi"
+                resourceLimitMemory: "1Gi"
+            yaml: |
+              spec:
+                securityContext:
+                  runAsNonRoot: true
+                  runAsUser: 1000
+                nodeSelector:
+                  workload: ci
+                tolerations:
+                  - { key: dedicated, operator: Equal, value: ci, effect: NoSchedule }
+
+security:
+  scriptApproval:
+    approvedSignatures: []           # every entry needs a PR + review
+  globalJobDslSecurityConfiguration:
+    useScriptSecurity: true
+  gitHostKeyVerificationConfiguration:
+    sshHostKeyVerificationStrategy: "knownHostsFileVerificationStrategy"
+  apiToken:
+    creationOfLegacyTokenEnabled: false
+    tokenGenerationOnCreationEnabled: false
+    usageStatisticsEnabled: true
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - gitHubApp:
+              id: github-app
+              description: "GitHub App: acme-jenkins"
+              appID: "${GITHUB_APP_ID}"
+              privateKey: "${GITHUB_APP_PRIVATE_KEY}"
+          - string:
+              id: sonar-token
+              scope: GLOBAL
+              secret: "${SONAR_TOKEN}"
+          - string:
+              id: slack-token
+              scope: GLOBAL
+              secret: "${SLACK_TOKEN}"
+          - string:
+              id: nvd-api-key
+              scope: GLOBAL
+              secret: "${NVD_API_KEY}"
+
+unclassified:
+  location:
+    url: "https://jenkins.example.com/"
+    adminAddress: "Jenkins <platform@example.com>"
+  buildDiscarders:
+    configuredBuildDiscarders:
+      - "jobBuildDiscarder"
+      - simpleBuildDiscarder:
+          discarder:
+            logRotator:
+              numToKeepStr: "50"
+              artifactNumToKeepStr: "5"
+  globalLibraries:
+    libraries:
+      - name: platform-lib
+        defaultVersion: v2
+        implicit: false
+        allowVersionOverride: true
+        includeInChangesets: false
+        retriever:
+          modernSCM:
+            scm:
+              git:
+                remote: "https://github.com/acme/platform-lib.git"
+                credentialsId: github-app
+  gitHubPluginConfig:
+    hookUrl: "https://jenkins.example.com/github-webhook/"
+  sonarGlobalConfiguration:
+    buildWrapperEnabled: true
+    installations:
+      - name: sonar
+        serverUrl: "https://sonar.example.com"
+        credentialsId: sonar-token
+  slackNotifier:
+    teamDomain: acme
+    tokenCredentialId: slack-token
+    botUser: true
+  prometheusConfiguration:
+    path: prometheus
+    useAuthenticatedEndpoint: true
+    collectingMetricsPeriodInSeconds: 120
+    defaultNamespace: default
+  timestamper:
+    allPipelines: true
+
+jobs:
+  - file: /var/jenkins_home/casc_configs/seed.groovy

@@ -1,0 +1,48 @@
+// GitOps promotion: Jenkins never touches the cluster. It bumps the image tag in the env repo;
+// Argo CD syncs. Staging = direct commit, prod = pull request for human review.
+pipeline {
+  agent { docker { image 'alpine/git:2.45.2'; args '--entrypoint=' } }
+  parameters {
+    string(name: 'APP', defaultValue: 'api')
+    string(name: 'TAG', defaultValue: '', description: 'Image tag/digest already built, scanned, signed')
+    choice(name: 'ENV', choices: ['staging', 'prod'])
+  }
+  options { timeout(time: 15, unit: 'MINUTES'); disableConcurrentBuilds() }
+  environment { GITOPS_REPO = 'git@github.com:acme/gitops.git' }
+  stages {
+    stage('Bump tag') {
+      steps {
+        sshagent(credentials: ['gitops-deploy-key']) {
+          sh '''
+            apk add --no-cache yq openssh-client github-cli >/dev/null
+            mkdir -p ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
+            git clone --depth 1 "$GITOPS_REPO" gitops && cd gitops
+            git config user.name  "jenkins-bot"
+            git config user.email "jenkins-bot@example.com"
+            FILE="envs/${ENV}/${APP}/values.yaml"
+            yq -i ".image.tag = \\"${TAG}\\"" "$FILE"
+            if git diff --quiet; then echo "Already at ${TAG}"; exit 0; fi
+            if [ "$ENV" = "prod" ]; then
+              BR="promote/${APP}-${TAG}"
+              git checkout -b "$BR"
+              git commit -am "${APP}: promote ${TAG} to prod (${BUILD_URL})"
+              git push origin "$BR"
+            else
+              git commit -am "${APP}: ${TAG} → ${ENV} (${BUILD_URL})"
+              git push origin HEAD:main
+            fi
+          '''
+        }
+      }
+    }
+    stage('Open prod PR') {
+      when { expression { params.ENV == 'prod' } }
+      steps {
+        withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
+          sh 'cd gitops && gh pr create --title "${APP}: ${TAG} → prod" --body "From ${BUILD_URL}" --base main --head "promote/${APP}-${TAG}"'
+        }
+      }
+    }
+  }
+  post { cleanup { cleanWs() } }
+}

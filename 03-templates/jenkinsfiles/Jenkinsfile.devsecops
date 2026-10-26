@@ -1,0 +1,109 @@
+// Full DevSecOps pipeline: secrets → SAST → SCA → IaC → build → image scan + SBOM → sign → DAST
+pipeline {
+  agent {
+    kubernetes {
+      defaultContainer 'tools'
+      yaml '''
+spec:
+  containers:
+  - name: tools                       # image with gitleaks, trivy, syft, cosign, crane, sonar-scanner
+    image: registry.example.com/ci/security-tools:2026.10
+    command: ["sleep"]
+    args: ["infinity"]
+    volumeMounts: [{ name: trivy-cache, mountPath: /trivy-cache }]
+  - name: odc
+    image: owasp/dependency-check:latest
+    command: ["sleep"]
+    args: ["infinity"]
+    volumeMounts: [{ name: odc-data, mountPath: /usr/share/dependency-check/data }]
+  volumes:
+  - name: trivy-cache
+    persistentVolumeClaim: { claimName: trivy-cache }
+  - name: odc-data
+    persistentVolumeClaim: { claimName: odc-data }
+'''
+    }
+  }
+  options {
+    timeout(time: 45, unit: 'MINUTES')
+    disableConcurrentBuilds(abortPrevious: true)
+    timestamps()
+  }
+  environment {
+    IMAGE = 'registry.example.com/team/app'
+    TAG   = "${env.GIT_COMMIT.take(7)}"
+    TRIVY_CACHE_DIR = '/trivy-cache'
+  }
+  stages {
+    stage('Security: source') {
+      parallel {
+        stage('Secrets (gitleaks)') {
+          steps { sh 'gitleaks detect --source . --no-banner --redact --report-format json --report-path gitleaks.json' }
+        }
+        stage('SAST (SonarQube)') {
+          steps { withSonarQubeEnv('sonar') { sh 'sonar-scanner -Dsonar.projectKey=$(echo "$JOB_NAME" | cut -d/ -f1-2 | tr / _)' } }
+        }
+        stage('SCA (OWASP DC)') {
+          steps {
+            container('odc') {
+              withCredentials([string(credentialsId: 'nvd-api-key', variable: 'NVD_API_KEY')]) {
+                sh '/usr/share/dependency-check/bin/dependency-check.sh --scan . --format XML --format HTML --out reports --nvdApiKey "$NVD_API_KEY" --failOnCVSS 9'
+              }
+            }
+          }
+        }
+        stage('SCA (Trivy fs)') {
+          steps { sh 'trivy fs --no-progress --scanners vuln,license --severity CRITICAL --ignore-unfixed --exit-code 1 .' }
+        }
+        stage('IaC (Trivy config)') {
+          steps { sh 'trivy config --severity HIGH,CRITICAL --exit-code 1 .' }
+        }
+      }
+    }
+    stage('Quality Gate') {
+      steps { timeout(time: 10, unit: 'MINUTES') { waitForQualityGate abortPipeline: true } }
+    }
+    stage('Build image') {
+      steps { echo 'Build + push with BuildKit — see Jenkinsfile.docker-build-push' }
+    }
+    stage('Security: image') {
+      steps {
+        sh '''
+          syft ${IMAGE}:${TAG} -o cyclonedx-json > sbom.cdx.json
+          trivy image --no-progress --format json -o trivy-image.json ${IMAGE}:${TAG}
+          trivy image --no-progress --severity CRITICAL --ignore-unfixed --exit-code 1 ${IMAGE}:${TAG}
+        '''
+      }
+    }
+    stage('Sign + attest') {
+      when { branch 'main' }
+      steps {
+        withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY'),
+                         string(credentialsId: 'cosign-password', variable: 'COSIGN_PASSWORD')]) {
+          sh '''
+            REF=${IMAGE}@$(crane digest ${IMAGE}:${TAG})
+            cosign sign   --yes --key "$COSIGN_KEY" "$REF"
+            cosign attest --yes --key "$COSIGN_KEY" --type cyclonedx --predicate sbom.cdx.json "$REF"
+          '''
+        }
+      }
+    }
+    stage('DAST (ZAP baseline on staging)') {
+      when { branch 'main' }
+      steps {
+        sh '''
+          docker run --rm -v "$PWD:/zap/wrk:rw" zaproxy/zap-stable \
+            zap-baseline.py -t https://app-staging.example.com -r zap.html -J zap.json -I
+        '''
+      }
+    }
+  }
+  post {
+    always {
+      archiveArtifacts artifacts: 'gitleaks.json, reports/**, sbom.cdx.json, trivy-image.json, zap.*', allowEmptyArchive: true
+      recordIssues enabledForFailure: true, tools: [trivy(pattern: 'trivy-image.json')]
+      dependencyCheckPublisher pattern: 'reports/dependency-check-report.xml'
+    }
+    cleanup { cleanWs() }
+  }
+}

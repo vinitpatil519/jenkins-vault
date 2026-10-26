@@ -1,0 +1,40 @@
+# Agent pod for the golden pipeline (language: java). `jnlp` container is added by the plugin.
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    jenkins/agent: golden-java
+spec:
+  serviceAccountName: jenkins-agent
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    fsGroup: 1000
+  containers:
+    - name: build                      # maven + make + trivy + gitleaks + sonar-scanner baked in
+      image: registry.example.com/ci/java21-build:2026.10
+      command: ["sleep"]
+      args: ["infinity"]
+      resources:
+        requests: { cpu: "1", memory: "2Gi" }
+        limits: { memory: "3Gi" }
+      volumeMounts:
+        - { name: m2, mountPath: /home/jenkins/.m2 }
+    - name: buildkit
+      image: moby/buildkit:v0.17.0-rootless
+      args: ["--oci-worker-no-process-sandbox"]
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile: { type: Unconfined }
+        appArmorProfile: { type: Unconfined }
+      resources:
+        requests: { cpu: "1", memory: "1Gi" }
+        limits: { memory: "4Gi" }
+  volumes:
+    - name: m2
+      persistentVolumeClaim: { claimName: maven-cache }
+  tolerations:
+    - { key: dedicated, operator: Equal, value: ci, effect: NoSchedule }
+  nodeSelector:
+    workload: ci

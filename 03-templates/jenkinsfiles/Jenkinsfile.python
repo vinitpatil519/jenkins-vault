@@ -1,0 +1,31 @@
+// Python: venv, ruff, mypy, pytest with JUnit + coverage
+pipeline {
+  agent { docker { image 'python:3.12-slim' } }
+  options { timeout(time: 20, unit: 'MINUTES'); timestamps() }
+  environment { PIP_CACHE_DIR = "${WORKSPACE}/.pip-cache" }
+  stages {
+    stage('Setup') {
+      steps {
+        sh '''
+          python -m venv .venv
+          . .venv/bin/activate
+          pip install -q -r requirements.txt -r requirements-dev.txt
+        '''
+      }
+    }
+    stage('Checks') {
+      parallel {
+        stage('Lint')  { steps { sh '. .venv/bin/activate && ruff check .' } }
+        stage('Types') { steps { sh '. .venv/bin/activate && mypy src' } }
+        stage('Test')  { steps { sh '. .venv/bin/activate && pytest --junitxml=reports/junit.xml --cov=src --cov-report=xml:reports/coverage.xml' } }
+      }
+    }
+  }
+  post {
+    always {
+      junit allowEmptyResults: true, testResults: 'reports/junit.xml'
+      recordCoverage tools: [[parser: 'COBERTURA', pattern: 'reports/coverage.xml']]
+    }
+    cleanup { cleanWs() }
+  }
+}

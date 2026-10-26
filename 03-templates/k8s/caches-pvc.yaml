@@ -1,0 +1,24 @@
+# Shared dependency caches for agent pods. RWX storage (EFS / Filestore / NFS) lets parallel pods share them.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: maven-cache, namespace: jenkins-agents }
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: efs-sc
+  resources: { requests: { storage: 50Gi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: npm-cache, namespace: jenkins-agents }
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: efs-sc
+  resources: { requests: { storage: 30Gi } }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: trivy-cache, namespace: jenkins-agents }
+spec:
+  accessModes: ["ReadWriteMany"]
+  storageClassName: efs-sc
+  resources: { requests: { storage: 5Gi } }

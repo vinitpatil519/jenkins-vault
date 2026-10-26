@@ -1,0 +1,52 @@
+// Terraform: fmt/validate/scan on every PR, plan saved as artifact, apply after approval on main
+pipeline {
+  agent { docker { image 'hashicorp/terraform:1.9'; args '--entrypoint=' } }
+  options { timeout(time: 60, unit: 'MINUTES'); disableConcurrentBuilds(); ansiColor('xterm') }
+  environment {
+    TF_IN_AUTOMATION = 'true'
+    TF_INPUT = '0'
+  }
+  stages {
+    stage('Init') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-terraform']]) {
+          sh 'terraform init -lockfile=readonly'
+        }
+      }
+    }
+    stage('Validate') {
+      steps {
+        sh 'terraform fmt -check -recursive'
+        sh 'terraform validate'
+      }
+    }
+    stage('Plan') {
+      steps {
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-terraform']]) {
+          sh 'terraform plan -out=tfplan -detailed-exitcode || [ $? -eq 2 ]'   // 2 = changes present
+          sh 'terraform show -no-color tfplan > plan.txt'
+        }
+        archiveArtifacts artifacts: 'plan.txt'
+        stash name: 'tfplan', includes: 'tfplan'
+      }
+    }
+    stage('Approve') {
+      when { branch 'main' }
+      steps {
+        timeout(time: 2, unit: 'HOURS') {
+          input message: 'Apply this plan? (see plan.txt artifact)', submitter: 'infra-admins'
+        }
+      }
+    }
+    stage('Apply') {
+      when { branch 'main' }
+      steps {
+        unstash 'tfplan'
+        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-terraform']]) {
+          sh 'terraform apply tfplan'          // applies exactly the reviewed plan
+        }
+      }
+    }
+  }
+  post { cleanup { cleanWs() } }
+}

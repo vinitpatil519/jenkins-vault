@@ -1,0 +1,51 @@
+// Scripted pipeline: properties, try/catch/finally, dynamic parallel from repo contents
+properties([
+  buildDiscarder(logRotator(numToKeepStr: '20')),
+  disableConcurrentBuilds(),
+  parameters([booleanParam(name: 'DEPLOY', defaultValue: false)])
+])
+
+timeout(time: 30, unit: 'MINUTES') {
+  node('linux') {
+    try {
+      stage('Checkout') {
+        checkout scm
+      }
+
+      stage('Test services') {
+        def services = sh(script: 'ls -d services/*/ | xargs -n1 basename', returnStdout: true).trim().split('\n')
+        def branches = [:]
+        for (s in services) {
+          def svc = s                       // capture loop var for the closure
+          branches[svc] = {
+            node('linux') {
+              checkout scm
+              sh "make -C services/${svc} test"
+            }
+          }
+        }
+        branches.failFast = true
+        parallel branches
+      }
+
+      if (env.BRANCH_NAME == 'main' && params.DEPLOY) {
+        stage('Deploy') {
+          input message: 'Deploy?', ok: 'Yes'
+          withCredentials([string(credentialsId: 'deploy-token', variable: 'TOKEN')]) {
+            sh './scripts/deploy.sh'        // $TOKEN read by the script, never interpolated in Groovy
+          }
+        }
+      }
+      currentBuild.result = 'SUCCESS'
+    } catch (org.jenkinsci.plugins.workflow.steps.FlowInterruptedException e) {
+      currentBuild.result = 'ABORTED'
+      throw e
+    } catch (e) {
+      currentBuild.result = 'FAILURE'
+      throw e
+    } finally {
+      junit allowEmptyResults: true, testResults: '**/reports/*.xml'
+      cleanWs()
+    }
+  }
+}

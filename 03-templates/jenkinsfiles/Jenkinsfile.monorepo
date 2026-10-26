@@ -1,0 +1,37 @@
+// Monorepo: build only services whose files changed (vs PR target or previous commit)
+pipeline {
+  agent { label 'linux' }
+  options { timeout(time: 40, unit: 'MINUTES'); timestamps() }
+  stages {
+    stage('Detect changes') {
+      steps {
+        script {
+          def base = env.CHANGE_TARGET ? "origin/${env.CHANGE_TARGET}" : 'HEAD~1'
+          if (env.CHANGE_TARGET) { sh "git fetch --no-tags origin ${env.CHANGE_TARGET}:refs/remotes/origin/${env.CHANGE_TARGET}" }
+          def changed = sh(script: "git diff --name-only ${base}...HEAD", returnStdout: true).trim().split('\n')
+          def services = changed.findAll { it.startsWith('services/') }
+                                .collect { it.tokenize('/')[1] }
+                                .unique()
+          if (changed.any { it.startsWith('libs/') }) {          // shared code changed → build all
+            services = sh(script: 'ls services', returnStdout: true).trim().split('\n') as List
+          }
+          env.SERVICES = services.join(',')
+          echo "Services to build: ${env.SERVICES ?: 'none'}"
+        }
+      }
+    }
+    stage('Build changed') {
+      when { expression { env.SERVICES } }
+      steps {
+        script {
+          def jobs = [:]
+          env.SERVICES.split(',').each { svc ->
+            jobs[svc] = { stage(svc) { sh "make -C services/${svc} ci" } }
+          }
+          parallel jobs
+        }
+      }
+    }
+  }
+  post { cleanup { cleanWs() } }
+}

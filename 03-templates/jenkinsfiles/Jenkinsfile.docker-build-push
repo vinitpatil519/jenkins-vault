@@ -1,0 +1,86 @@
+// Build image with rootless BuildKit in a K8s pod, scan with Trivy, push, sign with cosign
+pipeline {
+  agent {
+    kubernetes {
+      defaultContainer 'tools'
+      yaml '''
+spec:
+  containers:
+  - name: buildkit
+    image: moby/buildkit:v0.17.0-rootless
+    args: ["--oci-worker-no-process-sandbox"]
+    securityContext:
+      runAsUser: 1000
+      runAsGroup: 1000
+      seccompProfile: { type: Unconfined }
+      appArmorProfile: { type: Unconfined }
+    volumeMounts: [{ name: docker-config, mountPath: /home/user/.docker }]
+  - name: tools
+    image: alpine/k8s:1.31.2          # any image with trivy/cosign/crane installed
+    command: ["sleep"]
+    args: ["infinity"]
+    volumeMounts: [{ name: docker-config, mountPath: /root/.docker }]
+  volumes:
+  - name: docker-config
+    emptyDir: {}
+'''
+    }
+  }
+  options { timeout(time: 30, unit: 'MINUTES'); timestamps() }
+  environment {
+    REGISTRY = 'registry.example.com'
+    IMAGE    = "${REGISTRY}/team/app"
+    TAG      = "${env.GIT_COMMIT.take(7)}"
+  }
+  stages {
+    stage('Registry login') {
+      steps {
+        withCredentials([usernamePassword(credentialsId: 'registry-creds', usernameVariable: 'U', passwordVariable: 'P')]) {
+          sh '''
+            AUTH=$(printf '%s:%s' "$U" "$P" | base64 | tr -d '\\n')
+            printf '{"auths":{"%s":{"auth":"%s"}}}' "$REGISTRY" "$AUTH" > /root/.docker/config.json
+          '''
+        }
+      }
+    }
+    stage('Build & push') {
+      steps {
+        container('buildkit') {
+          sh '''
+            buildctl-daemonless.sh build \
+              --frontend dockerfile.v0 --local context=. --local dockerfile=. \
+              --opt build-arg:VERSION=${TAG} \
+              --output type=image,name=${IMAGE}:${TAG},push=true \
+              --export-cache type=registry,ref=${IMAGE}:buildcache,mode=max \
+              --import-cache type=registry,ref=${IMAGE}:buildcache
+          '''
+        }
+      }
+    }
+    stage('Scan') {
+      steps {
+        sh '''
+          trivy image --no-progress --format json -o trivy.json ${IMAGE}:${TAG}
+          trivy image --no-progress --severity CRITICAL --ignore-unfixed --exit-code 1 ${IMAGE}:${TAG}
+        '''
+      }
+    }
+    stage('Sign') {
+      when { branch 'main' }
+      steps {
+        withCredentials([file(credentialsId: 'cosign-key', variable: 'COSIGN_KEY'),
+                         string(credentialsId: 'cosign-password', variable: 'COSIGN_PASSWORD')]) {
+          sh '''
+            DIGEST=$(crane digest ${IMAGE}:${TAG})
+            cosign sign --yes --key "$COSIGN_KEY" ${IMAGE}@${DIGEST}
+            echo "${IMAGE}@${DIGEST}" > image.txt
+          '''
+        }
+      }
+    }
+  }
+  post {
+    always  { archiveArtifacts artifacts: 'trivy.json, image.txt', allowEmptyArchive: true }
+    cleanup { cleanWs() }
+  }
+}

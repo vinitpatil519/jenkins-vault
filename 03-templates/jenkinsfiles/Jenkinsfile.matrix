@@ -1,0 +1,32 @@
+// Matrix: test across OS × runtime versions, with excludes
+pipeline {
+  agent none
+  stages {
+    stage('Matrix tests') {
+      matrix {
+        axes {
+          axis { name 'PLATFORM'; values 'linux', 'windows' }
+          axis { name 'JDK';      values '17', '21' }
+        }
+        excludes {
+          exclude {
+            axis { name 'PLATFORM'; values 'windows' }
+            axis { name 'JDK';      values '17' }
+          }
+        }
+        agent { label "${PLATFORM}" }
+        stages {
+          stage('Test') {
+            steps {
+              script {
+                if (isUnix()) { sh "./gradlew test -PjdkVersion=${JDK}" }
+                else          { bat "gradlew.bat test -PjdkVersion=${JDK}" }
+              }
+            }
+            post { always { junit allowEmptyResults: true, testResults: '**/build/test-results/**/*.xml' } }
+          }
+        }
+      }
+    }
+  }
+}

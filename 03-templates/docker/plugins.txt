@@ -1,0 +1,26 @@
+# Lab plugin list. No versions = latest compatible with the LTS image at build time.
+# Production: pin every plugin as id:version (see 01-concepts/12-plugins.md).
+configuration-as-code
+job-dsl
+workflow-aggregator
+pipeline-graph-view
+pipeline-utility-steps
+pipeline-stage-view
+git
+github-branch-source
+ssh-slaves
+credentials-binding
+ssh-agent
+matrix-auth
+role-strategy
+timestamper
+ansicolor
+ws-cleanup
+build-timeout
+lockable-resources
+junit
+warnings-ng
+coverage
+sonar
+docker-workflow
+prometheus
